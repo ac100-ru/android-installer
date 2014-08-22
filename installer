@@ -1,0 +1,383 @@
+#!/bin/sh
+
+LOG="/tmp/installer.log"
+INST_TMP="/tmp/installer_tmp"
+
+
+cleanup() {
+	rm -rf "$INST_TMP"
+	umount "/tmp/sos" 2>/dev/null
+}
+
+
+error()
+{
+	cleanup
+	echo $@ | tee -a "$LOG"
+	echo "For more information see $LOG" | tee -a "$LOG"
+	exit 1
+}
+
+
+# 1 - dev
+erase_partitions() {
+	local dev="$1"
+	local cmd="unit s"
+	
+	for p in $(parted -s "$dev" print | awk '/^ / {print $1}')
+	do
+		cmd="$cmd
+rm $p"
+	done
+	
+	parted $dev >>"$LOG" 2>&1 << EOF
+$cmd
+quit
+EOF
+}
+	
+
+detect_target() {
+	for dev in /dev/mmcblk*boot0; do
+		[ -e "$dev" ] || continue
+		echo "${dev:0:12}"
+		return 0
+	done
+
+	return 1
+}
+
+
+# 1 - bootloader
+# 2 - device
+install_bootloader()
+{
+	local bootloader="$1"
+	local device="$2"
+
+	echo "Installing bootloader..." | tee -a "$LOG"
+
+	bct="ac100.bct"
+	new_bct="new.bct"
+	bct_config="bct.cfg"
+
+	bct_dev="${device}boot0"
+	echo "Dump configuration..." >>"$LOG"
+	dd if="$bct_dev" of="$bct" bs=4080 count=1 2>/dev/null || error "Failed to copy bct to file"
+	bct_dump "$bct" > "$bct_config"
+	if [ $? -ne "0" ]; then
+		echo "Failed to dump BCT config."
+		return 1
+	fi
+
+	echo "BootLoader = ${bootloader},0x00108000,0x00108000,Complete;" >> $bct_config
+
+	echo 0 > "/sys/block/$(basename ${device})boot0/force_ro"
+	echo 0 > "/sys/block/$(basename ${device})boot1/force_ro"
+
+	cbootimage -d "$bct_config" "${new_bct}" >>"$LOG" 2>&1
+	if [ $? -ne "0" ]; then
+		echo "Failed to gen new BCT."
+		return 1
+	fi
+
+	dd if=/dev/zero of=${device}boot0 2>/dev/null
+	dd if=/dev/zero of=${device}boot1 2>/dev/null
+
+	dd if=${new_bct} of=${bct_dev} 2>/dev/null || error "Failed to write new BCT."
+
+	echo 1 > "/sys/block/$(basename ${device})boot0/force_ro"
+	echo 1 > "/sys/block/$(basename ${device})boot1/force_ro"
+	
+	echo "Bootloader installed" >> "$LOG"
+}
+
+
+# 1 - config file
+# 2 - device
+apply_partitions_config()
+{
+	local config_file="$1"
+	local device="$2"
+	
+	[ -e "$config_file" ] || error "Config file $config_file doesn't exist"
+	
+	local format_cmd=""
+
+	local repart_cmd="unit s
+	mklabel gpt"
+	
+	local GPT_HDR=34
+	local first_free=$GPT_HDR
+	
+	local i=1
+	while read rec
+	do
+		if [[ "x#" == "x${rec:0:1}" ]]; then
+			continue
+		fi
+
+		name_fs="${rec%=*}"
+		start_size="${rec#*=}"
+
+		echo $name_fs | grep ":" > /dev/null
+		if [[ $? == "0" ]]; then
+			name="${name_fs%:*}"
+			fs="${name_fs#*:}"
+		else
+			name="${name_fs}"
+			fs=""
+		fi
+
+		echo $start_size | grep ":" > /dev/null
+		if [[ $? == "0" ]]; then
+			start="${start_size%:*}"
+			size="${start_size#*:}"
+		else
+			start=$first_free
+			size="${start_size}"
+		fi
+
+		if [ $size == "-1" ]; then
+			size=$(( $disk_size - $GPT_HDR - $first_free ))
+		fi
+	
+		end=$(( $start + $size - 1 ))
+		first_free=$(( $end + 1 ))
+
+		echo "$name [$start:$end] (fs: $fs)" >>"$LOG"
+		
+		case "$fs" in
+			"ext2")
+				format_cmd="$format_cmd mkfs.$fs ${device}p$i && " ;;
+			"ext3")
+				format_cmd="$format_cmd mkfs.$fs ${device}p$i &&" ;;
+			"ext4")
+				format_cmd="$format_cmd mkfs.$fs ${device}p$i &&" ;;
+			*)
+			;;
+		esac
+
+		part_cmd="
+mkpart primary $start $end
+name $i $name"
+	
+		repart_cmd="${repart_cmd}${part_cmd}"
+		i=$(( $i + 1 ))
+	done < "$config_file"
+
+	format_cmd="${format_cmd} true"	
+	repart_cmd="${repart_cmd}
+print
+quit"
+	
+	disk_size="$(blockdev --getsize ${device})"
+	[ -z "$disk_size" ] && error "Can't detect disk size"
+	#device="image-8G.bin"
+	#disk_size=$(( $(stat -c%s ${device}) / 512 ))
+	#echo "Disk size: $disk_size"
+	if [ ! -e $device ]; then
+		echo "Target device $device was not found"
+		return 1
+	fi
+	
+	echo $repart_cmd >>"$LOG" 2>&1
+	
+	erase_partitions "$device" || error "Can't remove old partitions"
+	
+	echo "Repartitioning..." | tee -a "$LOG"
+
+	parted $device >>"$LOG" 2>&1 << EOF
+$repart_cmd
+EOF
+	
+	if [[ $? != "0" ]]; then
+		error "Repartition failed."
+	fi
+
+	# Force kernel to update partitions info
+	partprobe -s >> "$LOG" 2>&1
+	sync
+
+	# Formatting
+	echo "Formatting..." | tee -a "$LOG"
+	local res=0
+	if [ -z "$format_cmd" ]; then
+		echo "Without formatting." >>"$LOG" 2>&1
+	else
+		echo "$format_cmd" >>"$LOG" 2>&1
+		eval "$format_cmd" >>"$LOG" 2>&1
+		local err=$?
+		[ $err -ne 0 ] && res=1
+		echo -e "Result: $err (res: $res)\n" >>"$LOG" 2>&1
+	fi
+
+	parted $device unit s print >>"$LOG" 2>&1
+	
+	return $res
+}
+
+
+# 1 - dst
+prepare_cm11_cfg() {
+	local dst="$1"
+
+	echo "# Cyanogen Mod 11 for AC100 partitions config
+# 64 MB
+SOS:ext2=131072
+# 64 MB
+LNX:ext2=131072
+# 512 MB
+APP:ext4=1048576
+# 512 MB
+CAC:ext4=1048576
+# 2 MB
+MSC=4096
+UDA:ext4=-1" > "$dst"
+}
+
+
+# 1 - dst
+prepare_cm11_and_linux_cfg() {
+	local dst="$1"
+
+	echo "# Cyanogen Mod 11 + Linux for AC100 partitions config
+# 64 MB
+SOS:ext2=131072
+# 64 MB
+LNX:ext2=131072
+# 512 MB
+APP:ext4=1048576
+# 512 MB
+CAC:ext4=1048576
+# 2 MB
+MSC=4096
+# 2GB
+UDA:ext4=419434
+# For Linux
+UDB:ext4=-1" > "$dst"
+}
+
+
+find_recovery_image() {
+	local dir="${0%/*}"
+	find "$dir" -name "recovery-*.img" -maxdepth 1
+}
+
+
+# 1 - dst
+extract_uboot() {
+	local dst="$1"
+	local sw_tmp="${INST_TMP}/switch-to-uboot"
+	
+	/switch-to-uboot --noexec --keep --target "$sw_tmp" >>"$LOG" 2>&1 || error "Failed to extract u-boot"
+	cp "${sw_tmp}/uboot.bin" "$dst" >>"$LOG" 2>&1 || error "Failed to copy u-boot to $dst"
+}
+
+
+# 1 - recovery
+# 2 - dst
+extract_recovery() {
+	local recovery="$1"
+	local dst="$2"
+	
+	# Extract images from recovery
+	rm -rf "$dst"
+	mkdir -p "$dst" >>"$LOG" 2>&1 || error "Can't create directory for recovery"
+	unzip "$recovery" -d "$dst" >>"$LOG" 2>&1 || return 1
+
+	return 0
+}
+
+
+# 1 - device
+# 2 - recovery image
+# 3 - boot cmd
+# 4 - kernel
+# 5 - initrd
+setup_boot_partition() {
+	local dev="$1"
+	local recovery="$2"
+
+	# Prepare SOS
+	local sos="${dev}p1"
+	mkdir -p "/tmp/sos"
+	mount "$sos" "/tmp/sos" || error "Can't mount $sos"
+
+	# Install kernel and initrd
+	mkdir -p "/tmp/sos/boot" || error "Failed to create boot dir"
+	cp "${recovery}"/* "/tmp/sos/boot" || error "Failed to install recovery kernel"
+}
+
+
+# 1 - device
+pre_install_warning() {
+	local dev="$1"
+	#clear
+	echo -e "\n"
+
+	echo -e "Ready to install Android to ${dev}.\n"
+	echo -e "This procedure will erase all data on your AC100.\n"
+	
+	read -p "Do you want to continue? [N/y] : " CHOISE
+	case $CHOISE in
+		"Y") return 0;;
+		"y") return 0;;
+	esac
+
+	return 1
+}
+
+
+main() {
+	clear
+
+	echo "********************************************************" >> "$LOG"
+	date >> "$LOG" 2>&1
+	echo "********************************************************" >> "$LOG"
+	
+	# Cleanup if previous installation was terminated by kill/Ctrl+C
+	cleanup
+	mkdir -p "${INST_TMP}"
+
+	local CONFIG="${INST_TMP}/partitions.cfg"
+
+	# Detect target device
+	dev="$(detect_target)"
+	[ -z "$dev" ] && error "Target device was not detected"
+	echo "Target: $dev" | tee -a "$LOG"
+	
+	# Check that device is not mounted
+	mount | grep "$dev" >>"$LOG" 2>&1 && error "$dev is mounted. Please unmount it and try again."
+
+	# Extract u-boot
+	local uboot="${INST_TMP}/uboot.bin"
+	extract_uboot "$uboot"
+	[ -e "$uboot" ] || error "Can't find u-boot.bin"
+
+	# Find recovery.img
+	local recovery_image="$(find_recovery_image)"
+	[ -z "$recovery_image" ] && error "Can't find recovery image"
+	echo "Recovery image: $recovery_image" | tee -a "$LOG"
+
+	# Extract kernel and initrd
+	extract_recovery "$recovery_image" "${INST_TMP}/recovery" || error "Failed to extract recovery"
+
+	prepare_cm11_cfg "$CONFIG" || error "Failed to prepare partitions config"
+
+	pre_install_warning "$dev" || exit 1
+
+	install_bootloader "$uboot" "$dev" || error "Failed to install U-Boot"
+	apply_partitions_config "$CONFIG" "$dev" || error "Failed to partition"	
+
+	setup_boot_partition "$dev" "${INST_TMP}/recovery" || error "Repartitioning failed"
+
+	echo -e "Operation completed.\n" | tee -a "$LOG"
+	echo -e "Please reboot your AC100 and select 'Android Recovery' to continue installation." | tee -a "$LOG"
+	echo -e "Don't forget to unmount installation source." | tee -a "$LOG"
+	
+	cleanup
+}
+
+
+main
