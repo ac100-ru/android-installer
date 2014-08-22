@@ -364,7 +364,7 @@ main() {
 	setup_boot_partition "$dev" "${INST_TMP}/recovery" || error "Repartitioning failed"
 
 	echo -e "Operation completed.\n" | tee -a "$LOG"
-	echo -e "Please reboot your AC100 and select 'Android Recovery' to continue installation." | tee -a "$LOG"
+	echo -e "Please reboot your AC100 and select 'Boot SOS CM-11.0' to continue installation." | tee -a "$LOG"
 	echo -e "Don't forget to unmount installation source." | tee -a "$LOG"
 	
 	cleanup
