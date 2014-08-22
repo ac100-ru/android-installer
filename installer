@@ -22,18 +22,9 @@ error()
 # 1 - dev
 erase_partitions() {
 	local dev="$1"
-	local cmd="unit s"
 	
-	for p in $(parted -s "$dev" print | awk '/^ / {print $1}')
-	do
-		cmd="$cmd
-rm $p"
-	done
-	
-	parted $dev >>"$LOG" 2>&1 << EOF
-$cmd
-quit
-EOF
+	# Workaround: remove old PT
+	dd if=/dev/zero of="$dev" bs=512 count=7168 2>/dev/null
 }
 	
 
@@ -377,6 +368,7 @@ main() {
 	echo -e "Don't forget to unmount installation source." | tee -a "$LOG"
 	
 	cleanup
+	sync
 }
 
 
