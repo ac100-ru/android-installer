@@ -7,7 +7,7 @@ For more information about CyanogenMod for AC100 see [project page](http://code.
 Installation
 --------------
 
-1. Download [cm_ac100-ota-11.0-20140322-UNOFFICIAL.zip](https://docs.google.com/uc?export=download&confirm=xQ1b&id=0BzHUnWusu2ztdjZjRmE3VW9YWlk) and [recovery-11.0-20140322.img](https://doc-08-ak-docs.googleusercontent.com/docs/securesc/7ko7ijlfshsp9pbkhs42phr7ntq9l9tf/ccol8jifdi5medhbhp4jur2ioecuivdt/1408708800000/09756615013362979763/18356994887682550863/0BzHUnWusu2ztc3R2OEEta19sYzA?h=16653014193614665626&e=download)
+1. Download [cm_ac100-ota-11.0-20140322-UNOFFICIAL.zip](https://docs.google.com/uc?export=download&confirm=xQ1b&id=0BzHUnWusu2ztdjZjRmE3VW9YWlk) and [recovery-11.0-20140322.img](https://drive.google.com/uc?id=0BzHUnWusu2ztc3R2OEEta19sYzA&export=download)
 
 2. Download [installer](https://raw.githubusercontent.com/ac100-ru/android-installer/master/installer)
 
