@@ -145,6 +145,8 @@ apply_partitions_config()
 				format_cmd="$format_cmd mkfs.$fs ${device}p$i &&" ;;
 			"ext4")
 				format_cmd="$format_cmd mkfs.$fs ${device}p$i &&" ;;
+			"vfat")
+				format_cmd="$format_cmd mkfs.$fs ${device}p$i &&" ;;
 			*)
 			;;
 		esac
@@ -224,7 +226,10 @@ APP:ext4=1048576
 CAC:ext4=1048576
 # 2 MB
 MSC=4096
-UDA:ext4=-1" > "$dst"
+# 2GB
+UDA:ext4=419434
+# other space 
+UDB:vfat=-1" > "$dst"
 }
 
 
