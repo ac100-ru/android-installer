@@ -227,7 +227,7 @@ CAC:ext4=1048576
 # 2 MB
 MSC=4096
 # 2GB
-UDA:ext4=419434
+UDA:ext4=4194304
 # other space 
 UDB:vfat=-1" > "$dst"
 }
@@ -249,7 +249,7 @@ CAC:ext4=1048576
 # 2 MB
 MSC=4096
 # 2GB
-UDA:ext4=419434
+UDA:ext4=4194304
 # For Linux
 UDB:ext4=-1" > "$dst"
 }
