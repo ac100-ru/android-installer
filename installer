@@ -217,7 +217,7 @@ prepare_cm11_cfg() {
 
 	echo "# Cyanogen Mod 11 for AC100 partitions config
 # 64 MB
-SOS:ext2=131072
+SOS:ext2=4096:131072
 # 64 MB
 LNX:ext2=131072
 # 512 MB
@@ -239,7 +239,7 @@ prepare_cm11_and_linux_cfg() {
 
 	echo "# Cyanogen Mod 11 + Linux for AC100 partitions config
 # 64 MB
-SOS:ext2=131072
+SOS:ext2=4096:131072
 # 64 MB
 LNX:ext2=131072
 # 512 MB
