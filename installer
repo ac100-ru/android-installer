@@ -302,7 +302,11 @@ UDB:ext4=-1" > "$dst"
 
 find_recovery_image() {
 	local dir="${0%/*}"
-	find "$dir" -name "recovery-*.img" -maxdepth 1
+
+	local count="$(find "$dir" -maxdepth 1 -name "recovery-*.img" | wc -l)"
+	[ $count -ne 1 ] && error "Too many recovery images in '${dir}'. Please keep only one."
+
+	find "$dir" -maxdepth 1 -name "recovery-*.img" | head -n 1
 }
 
 
