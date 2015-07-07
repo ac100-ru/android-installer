@@ -212,6 +212,53 @@ EOF
 
 
 # 1 - dst
+prepare_cm10_cfg() {
+	local dst="$1"
+
+	echo "# Cyanogen Mod 10 for AC100 partitions config
+# 64 MB
+SOS:ext2=4096:131072
+# 64 MB
+LNX:ext2=131072
+# 512 MB
+APP:ext4=1048576
+# 512 MB
+CAC:ext4=1048576
+# 2 MB
+MSC=4096
+# 2GB
+UDA:ext4=4194304
+# other space (android user data)
+UDB:vfat=-1" > "$dst"
+}
+
+
+# 1 - dst
+prepare_cm10_and_linux_cfg() {
+	local dst="$1"
+
+	echo "# Cyanogen Mod 10 + Linux for AC100 partitions config
+# 64 MB
+SOS:ext2=4096:131072
+# 64 MB
+LNX:ext2=131072
+# 512 MB
+APP:ext4=1048576
+# 512 MB
+CAC:ext4=1048576
+# 2 MB
+MSC=4096
+# 2GB
+UDA:ext4=4194304
+# 2GB (android user data)
+UDB:vfat=4194304
+# other space (linux)
+LIN:ext4=-1" > "$dst"
+}
+
+
+
+# 1 - dst
 prepare_cm11_cfg() {
 	local dst="$1"
 
@@ -226,10 +273,8 @@ APP:ext4=1048576
 CAC:ext4=1048576
 # 2 MB
 MSC=4096
-# 2GB
-UDA:ext4=4194304
-# other space 
-UDB:vfat=-1" > "$dst"
+# other space
+UDA:vfat=-1" > "$dst"
 }
 
 
@@ -324,6 +369,28 @@ pre_install_warning() {
 	return 1
 }
 
+select_cfg() {
+	echo -e " " >&2
+
+	echo -e "Select configuration:" >&2
+	echo -e " 1. CyanogenMOD 10" >&2
+	echo -e " 2. CyanogenMOD 10 and linux" >&2
+	echo -e " 3. CyanogenMOD 11" >&2
+	echo -e " 4. CyanogenMOD 11 and linux" >&2
+	echo -e " " >&2
+	echo -e "If you choose android with linux configuration last partition" >&2
+	echo -e "muse be used for linux.\n" >&2
+	
+	read -p "Please select [1/2/3/4/q] (q for quit) : " CHOISE
+	case $CHOISE in
+		"1") echo "CM10"; return 0;;
+		"2") echo "CM10_LINUX"; return 0;;
+		"3") echo "CM11"; return 0;;
+		"4") echo "CM11_LINUX"; return 0;;
+	esac
+
+	return 1
+}
 
 main() {
 	clear
@@ -359,7 +426,16 @@ main() {
 	# Extract kernel and initrd
 	extract_recovery "$recovery_image" "${INST_TMP}/recovery" || error "Failed to extract recovery"
 
-	prepare_cm11_cfg "$CONFIG" || error "Failed to prepare partitions config"
+	cfg="$(select_cfg)"
+	[ $? -eq 0 ] || exit 1
+	case $cfg in
+		"CM10") prepare_cm10_cfg "$CONFIG";;
+		"CM10_LINUX") prepare_cm10_and_linux_cfg "$CONFIG";;
+		"CM11") prepare_cm11_cfg "$CONFIG";;
+		"CM11_LINUX") prepare_cm11_and_linux_cfg "$CONFIG";;
+		*) error "Internal error: unknown config"
+	esac
+	[ $? -eq 0 ] || error "Failed to prepare partitions config ($cfg)"
 
 	pre_install_warning "$dev" || exit 1
 
