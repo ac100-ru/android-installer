@@ -13,8 +13,8 @@ cleanup() {
 error()
 {
 	cleanup
-	echo $@ | tee -a "$LOG"
-	echo "For more information see $LOG" | tee -a "$LOG"
+	echo $@ | tee -a "$LOG" >&2
+	echo "For more information see $LOG" | tee -a "$LOG" >&2
 	exit 1
 }
 
